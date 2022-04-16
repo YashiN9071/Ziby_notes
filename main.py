@@ -1,6 +1,6 @@
 # t.me/ziby_notes_bot
 import logging
-
+import sqlite3
 from telegram.ext import Updater, CommandHandler, ConversationHandler
 from telegram import ReplyKeyboardMarkup
 
@@ -10,14 +10,15 @@ logger = logging.getLogger(__name__)
 TOKEN = '5387683486:AAEHQB94zVgmg3JcYPQFmgHR_ZcmCy47SOU'
 
 # keyboards
-reply_keyboard = [['/notes', '/reminds'],
-                  ['/help', '/stop']]
-main_markup = ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True)
-
-notes_reply_keyboard = [['/create_note', '/view_notes'],
+# main
+main_reply_keyboard = [['/notes', '/reminds'],
+                       ['/help', '/stop']]
+main_markup = ReplyKeyboardMarkup(main_reply_keyboard, one_time_keyboard=True)
+# notes
+notes_reply_keyboard = [['create_note', '/view_notes'],
                         ['/delete_note', '/come_back']]
 notes_markup = ReplyKeyboardMarkup(notes_reply_keyboard, one_time_keyboard=True)
-
+# reminds
 reminds_reply_keyboard = [['/create_remind', '/view_reminds'],
                           ['/delete_remind', '/come_back']]
 reminds_markup = ReplyKeyboardMarkup(reminds_reply_keyboard, one_time_keyboard=True)
@@ -49,24 +50,45 @@ def start(update, context):
         'Давайте начнём!',
         reply_markup=main_markup
     )
+    user_inf = (
+        update.message.from_user.id,
+        update.message.from_user.first_name if update.message.from_user.first_name else '0',
+        update.message.from_user.username if update.message.from_user.username else '0')
+    conn = sqlite3.connect("ziby_notes_database.db")
+    cur = conn.cursor()
+    all_users = [x[0] for x in cur.execute('SELECT user_id FROM users').fetchall()]
+    if not user_inf[0] in all_users:
+        cur.execute('INSERT INTO users VALUES (?, ?, ?);', user_inf)
+        conn.commit()
 
 
 def stop(update, context):
-    update.message.reply_text('Значит на этом всё, надеюсь был полезен')
+    update.message.reply_text('Значит на этом всё, надеюсь был полезен. Ваши заметки и напоминалки будут удалены.')
     return ConversationHandler.END
 
 
 def help(update, context):
-    update.message.reply_text('У меня есть следующие функции: ')
+    update.message.reply_text(
+        'У меня есть следующие функции:'
+    )
 
 
 def notes(update, context):
     update.message.reply_text('Здесь вы можете посмотреть все ваши существующие заметки, добавить новую\
-     или удалить старую заметку', reply_markup=notes_markup)
+или удалить старую заметку (Всего я могу хранить только 10 ваших заметок)', reply_markup=notes_markup)
 
 
 def create_note(update, context):
     update.message.reply_text('Напишите новую заметку')
+    context.args = update.message.text
+    new_note = update.message.text
+    user_id = update.message.from_user.id
+    conn = sqlite3.connect("ziby_notes_database.db")
+    cur = conn.cursor()
+    quantity_notes = len(cur.execute('SELECT note FROM notes WHERE user_id = ?', (user_id,)).fetchall())
+    if quantity_notes < 11:
+        cur.execute('INSERT INTO notes VALUES (?, ?);', (user_id, new_note))
+        conn.commit()
 
 
 def view_notes(update, context):
