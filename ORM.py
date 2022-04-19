@@ -27,20 +27,10 @@ class Notes(BaseModel):
         db_table = 'notes'
 
 
-class Reminds(BaseModel):
-    user_id = IntegerField()
-    remind = TextField()
-    datetime = DateTimeField()
-
-    class Meta:
-        db_table = 'reminds'
-
-
 if __name__ == '__main__':
     try:
         db.connect()
         Users.create_table()
         Notes.create_table()
-        Reminds.create_table()
     except InternalError as px:
         print(str(px))

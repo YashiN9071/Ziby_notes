@@ -1,7 +1,8 @@
 # t.me/ziby_notes_bot
+import datetime
 import logging
 from peewee import *
-from telegram.ext import Updater, CommandHandler, ConversationHandler
+from telegram.ext import Updater, CommandHandler, ConversationHandler, JobQueue, CallbackContext
 from telegram import ReplyKeyboardMarkup
 
 # logging
@@ -14,30 +15,26 @@ TOKEN = '5387683486:AAEHQB94zVgmg3JcYPQFmgHR_ZcmCy47SOU'
 main_reply_keyboard = [['/notes', '/reminds'],
                        ['/help', '/stop']]
 main_markup = ReplyKeyboardMarkup(main_reply_keyboard, one_time_keyboard=True)
-# reminds
-reminds_reply_keyboard = [['/create_remind', '/view_reminds'],
-                          ['/delete_remind', '/come_back']]
-reminds_markup = ReplyKeyboardMarkup(reminds_reply_keyboard, one_time_keyboard=True)
 
 
 # functions and commands
-def main():
-    updater = Updater(TOKEN)
-    dp = updater.dispatcher
-    dp.add_handler(CommandHandler('start', start))
-    dp.add_handler(CommandHandler('help', help))
-    dp.add_handler(CommandHandler('stop', stop))
-    dp.add_handler(CommandHandler('notes', notes))
-    dp.add_handler(CommandHandler('reminds', reminds))
-    dp.add_handler(CommandHandler('create_note', create_note))
-    dp.add_handler(CommandHandler('delete_note', delete_note))
-    dp.add_handler(CommandHandler('create_remind', create_remind))
-    dp.add_handler(CommandHandler('view_reminds', view_reminds))
-    dp.add_handler(CommandHandler('delete_remind', delete_remind))
-    dp.add_handler(CommandHandler('come_back', come_back))
-    updater.start_polling()
+UPDATER = Updater(TOKEN)
+DP = UPDATER.dispatcher
+JOB = UPDATER.job_queue
 
-    updater.idle()
+
+def main():
+    DP.add_handler(CommandHandler('start', start))
+    DP.add_handler(CommandHandler('help', help))
+    DP.add_handler(CommandHandler('stop', stop))
+    DP.add_handler(CommandHandler('notes', notes))
+    DP.add_handler(CommandHandler('reminds', reminds))
+    DP.add_handler(CommandHandler('create_note', create_note))
+    DP.add_handler(CommandHandler('delete_note', delete_note))
+    DP.add_handler(CommandHandler('create_remind', create_remind))
+    UPDATER.start_polling()
+
+    UPDATER.idle()
 
 
 def start(update, context):
@@ -71,17 +68,18 @@ def notes(update, context):
 
 Команда /delete_note {цифра/цифры, записанные через пробел} — позволяет удалить заметку/заметки.''')
 
-    user_id = update.message.from_user.id
-    user_notes = view_notes(user_id)
-    list_of_notes = []
-    if len(user_notes):
-        for note_number in range(len(user_notes)):
-            list_of_notes.append(f'{user_notes[note_number][0]}. {user_notes[note_number][1]}')
-        list_of_notes = '\n'.join(list_of_notes)
+    try:
+        user_id = update.message.from_user.id
+        user_notes = view_notes(user_id)
+        list_of_notes = []
+        if len(user_notes):
+            for note_number in range(len(user_notes)):
+                list_of_notes.append(f'{user_notes[note_number][0]}. {user_notes[note_number][1]}')
+            list_of_notes = '\n'.join(list_of_notes)
 
         update.message.reply_text(f'''Вот все ваши заметки:\n{list_of_notes}''')
 
-    else:
+    except DoesNotExist:
         update.message.reply_text('У вас пока нет заметок.')
 
 
@@ -101,47 +99,46 @@ def create_note(update, context):
 
 
 def delete_note(update, context):
-    try:
-        notes_for_delete_message = update.message.text[13:]
-        notes_for_delete = [int(x) for x in notes_for_delete_message.split()]
-        user_id = update.message.from_user.id
-        remove_note(user_id, notes_for_delete)
+    notes_for_delete_message = update.message.text[13:]
+    notes_for_delete = [int(x) for x in notes_for_delete_message.split()]
+    user_id = update.message.from_user.id
+    remove_note(user_id, notes_for_delete)
 
-        user_notes = view_notes(user_id)
-        list_of_notes = []
+    user_notes = view_notes(user_id)
+    list_of_notes = []
+    if len(user_notes):
         for note_number in range(len(user_notes)):
             list_of_notes.append(f'{user_notes[note_number][0]}. {user_notes[note_number][1]}')
         list_of_notes = '\n'.join(list_of_notes)
 
         update.message.reply_text(f'''Теперь ваши заметки выглядят так:\n{list_of_notes}''')
-
-    except ValueError:
+    else:
         update.message.reply_text('Пожалуйста, отправьте цифру/цифры, записанные через пробел, если хотите \
 удалить сообщение')
 
 
 def reminds(update, context):
-    update.message.reply_text(
-        'Эта функция используется вами, чтобы отправить себе сообщение в будущее. Вы можете создать новую\
-"напоминалку", посмотреть их все (после срабатывания они удаляются автоматически) и удалить созданные,\
-если вам они больше не нужны',
-        reply_markup=reminds_markup)
+    update.message.reply_text('Эта функция используется, чтобы отправлять сообщения в будущее, так называемые \
+"напоминалки" \n\n Команда /create_remind {Ваша напоминалка} {время в формате день.месяц.год часы.минуты\
+(пример: 25.04.2022 15.00)}')
 
 
 def create_remind(update, context):
-    update.message.reply_text('Напишите новую напоминалку')
+    new_remind = update.message.text[15:]
+    print(update.message.from_user.id)
+    message = new_remind[:-17]
+    date = new_remind[-16:-6]
+    day, month, year = date.split('.')
+    time = new_remind[-5:]
+    hour, minute = time.split('.')
+    update.message.reply_text(f'Вы создали напоминалку, которая сработает {date} в {time}')
+    JOB.run_once(remind_message, when=(year, month, day, hour, minute), timezone=datetime.tzinfo, context=update.message.from_user.id)
 
 
-def view_reminds(update, context):
-    update.message.reply_text('Вот ваши напоминалки')
-
-
-def delete_remind(update, context):
-    update.message.reply_text('Укажите номер напоминалки, которую хотите удалить')
-
-
-def come_back(update, context):
-    update.message.reply_text('Возвращаю', reply_markup=main_markup)
+def remind_message(update, context: CallbackContext):
+    new_remind = update.message.text[15:-17]
+    print(new_remind)
+    update.message.reply_text(chat_id=update.message.from_user.id, text='text')
 
 
 # ORM models
@@ -172,19 +169,13 @@ class Notes(BaseModel):
         db_table = 'notes'
 
 
-class Reminds(BaseModel):
-    user_id = IntegerField()
-    remind = TextField()
-    datetime = DateTimeField()
-
-    class Meta:
-        db_table = 'reminds'
-
-
 # user
 def add_user(user_id, first_name, username):
-    row = Users(user_id=user_id, first_name=first_name, username=username)
-    row.save()
+    try:
+        print(Users.get(Users.user_id == user_id))
+    except DoesNotExist:
+        row = Users(user_id=user_id, first_name=first_name, username=username)
+        row.save()
 
 
 # notes
@@ -196,10 +187,13 @@ def add_note(user_id, user_note_id, note):
 def view_notes(user_id):
     user_notes_count = Notes.select(Notes.user_id == user_id).count()
     all_notes = []
-    for note_number in range(1, user_notes_count + 1):
-        note = Notes.get(Notes.user_id == user_id, Notes.user_note_id == note_number)
-        all_notes.append((note.user_note_id, note.note))
-    return all_notes
+    try:
+        for note_number in range(1, user_notes_count + 1):
+            note = Notes.get(Notes.user_id == user_id, Notes.user_note_id == note_number)
+            all_notes.append((note.user_note_id, note.note))
+        return all_notes
+    except DoesNotExist:
+        return all_notes
 
 
 def remove_note(user_id, *note_ids):
