@@ -3,6 +3,7 @@ import logging
 import sqlite3
 from telegram.ext import Updater, CommandHandler, ConversationHandler
 from telegram import ReplyKeyboardMarkup
+from ORM import *
 
 # logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.DEBUG)
@@ -14,10 +15,6 @@ TOKEN = '5387683486:AAEHQB94zVgmg3JcYPQFmgHR_ZcmCy47SOU'
 main_reply_keyboard = [['/notes', '/reminds'],
                        ['/help', '/stop']]
 main_markup = ReplyKeyboardMarkup(main_reply_keyboard, one_time_keyboard=True)
-# notes
-notes_reply_keyboard = [['create_note', '/view_notes'],
-                        ['/delete_note', '/come_back']]
-notes_markup = ReplyKeyboardMarkup(notes_reply_keyboard, one_time_keyboard=True)
 # reminds
 reminds_reply_keyboard = [['/create_remind', '/view_reminds'],
                           ['/delete_remind', '/come_back']]
@@ -34,7 +31,6 @@ def main():
     dp.add_handler(CommandHandler('notes', notes))
     dp.add_handler(CommandHandler('reminds', reminds))
     dp.add_handler(CommandHandler('create_note', create_note))
-    dp.add_handler(CommandHandler('view_notes', view_notes))
     dp.add_handler(CommandHandler('delete_note', delete_note))
     dp.add_handler(CommandHandler('create_remind', create_remind))
     dp.add_handler(CommandHandler('view_reminds', view_reminds))
@@ -54,12 +50,7 @@ def start(update, context):
         update.message.from_user.id,
         update.message.from_user.first_name if update.message.from_user.first_name else '0',
         update.message.from_user.username if update.message.from_user.username else '0')
-    conn = sqlite3.connect("ziby_notes_database.db")
-    cur = conn.cursor()
-    all_users = [x[0] for x in cur.execute('SELECT user_id FROM users').fetchall()]
-    if not user_inf[0] in all_users:
-        cur.execute('INSERT INTO users VALUES (?, ?, ?);', user_inf)
-        conn.commit()
+    add_user(user_inf[0], user_inf[1], user_inf[2])
 
 
 def stop(update, context):
@@ -74,29 +65,63 @@ def help(update, context):
 
 
 def notes(update, context):
-    update.message.reply_text('Здесь вы можете посмотреть все ваши существующие заметки, добавить новую\
-или удалить старую заметку (Всего я могу хранить только 10 ваших заметок)', reply_markup=notes_markup)
+    update.message.reply_text('''Здесь вы можете посмотреть все ваши существующие заметки, добавить новую или удалить \
+старую заметку.
+
+Для того, чтобы создать заметку воспользуйтесь командой /create_note (ваша заметка).
+
+Для того, чтобы удалить заметку вам нужно использовать команду /delete_note и указать её \
+порядковый номер. Если хотите удалить несколько, то запишите все цифры через пробел.''')
+
+    user_id = update.message.from_user.id
+    user_notes = view_note(user_id)
+    list_of_notes = []
+    if len(user_notes):
+        for note_number in range(len(user_notes)):
+            list_of_notes.append(f'{user_notes[note_number][0]}. {user_notes[note_number][1]}')
+        list_of_notes = '\n'.join(list_of_notes)
+
+        update.message.reply_text(f'''Вот все ваши заметки:\n{list_of_notes}''')
+
+    else:
+        update.message.reply_text('У вас пока нет заметок.')
 
 
 def create_note(update, context):
-    update.message.reply_text('Напишите новую заметку')
-    context.args = update.message.text
-    new_note = update.message.text
+    new_note = update.message.text[13:]
     user_id = update.message.from_user.id
-    conn = sqlite3.connect("ziby_notes_database.db")
-    cur = conn.cursor()
-    quantity_notes = len(cur.execute('SELECT note FROM notes WHERE user_id = ?', (user_id,)).fetchall())
-    if quantity_notes < 11:
-        cur.execute('INSERT INTO notes VALUES (?, ?);', (user_id, new_note))
-        conn.commit()
+    user_notes_len = len(view_note(user_id))
+    add_note(user_id, user_notes_len + 1, new_note)
 
+    user_notes = view_note(user_id)
+    list_of_notes = []
+    for note_number in range(len(user_notes)):
+        list_of_notes.append(f'{user_notes[note_number][0]}. {user_notes[note_number][1]}')
+    list_of_notes = '\n'.join(list_of_notes)
 
-def view_notes(update, context):
-    update.message.reply_text('Вот ваши заметки')
+    update.message.reply_text(f'''Теперь ваши заметки выглядят так:\n{list_of_notes}''')
 
 
 def delete_note(update, context):
-    update.message.reply_text('Укажите номер заметки, которую хотите удалить')
+    number_of_notes_for_delete = update.message.text[13:]
+    notes_for_delete = [int(x) for x in number_of_notes_for_delete.split()]
+    user_id = update.message.from_user.id
+    conn = sqlite3.connect("ziby_notes_database.db")
+    cur = conn.cursor()
+    user_notes = cur.execute('SELECT note_number_for_user, note FROM notes WHERE user_id = ?', (user_id,)).fetchall()
+    print(user_notes)
+    for note_number in notes_for_delete:
+        cur.execute('DELETE FROM notes WHERE user_id = ? and note_number_for_user = ?', (user_id, note_number))
+    user_notes = cur.execute('SELECT note_number_for_user, note FROM notes WHERE user_id = ?', (user_id,)).fetchall()
+    print(user_notes)
+
+    user_notes = cur.execute('SELECT note FROM notes WHERE user_id = ?', (user_id,)).fetchall()
+    list_of_notes = []
+    for note_number in range(len(user_notes)):
+        list_of_notes.append(f'{note_number + 1}. {user_notes[note_number][0]}')
+    list_of_notes = '\n'.join(list_of_notes)
+
+    update.message.reply_text(f'''Теперь ваши заметки выглядят так:\n{list_of_notes}''')
 
 
 def reminds(update, context):

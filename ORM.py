@@ -58,13 +58,7 @@ def view_note(user_id):
 
 
 def delete_note(user_id, note_ids):
-    note_ids.sort().reverse()
-    user_notes = Notes.get(Notes.user_id == user_id)
-    for note_num in note_ids:
-        user_notes.remove(note_num)
-    save_user_notes = user_notes[:]
-    user_notes.delete_instance()
-    # for save_notes in save_user_notes:
+    pass
 
 
 if __name__ == '__main__':
