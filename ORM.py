@@ -36,31 +36,6 @@ class Reminds(BaseModel):
         db_table = 'reminds'
 
 
-# user
-def add_user(user_id, first_name, username):
-    row = Users(user_id=user_id, first_name=first_name, username=username)
-    row.save()
-
-
-# notes
-def add_note(user_id, user_note_id, note):
-    row = Notes(user_id=user_id, user_note_id=user_note_id, note=note)
-    row.save()
-
-
-def view_note(user_id):
-    user_notes_count = Notes.select(Notes.user_id == user_id).count()
-    all_notes = []
-    for note_number in range(1, user_notes_count + 1):
-        note = Notes.get(Notes.user_id == user_id, Notes.user_note_id == note_number)
-        all_notes.append((note.user_note_id, note.note))
-    return all_notes
-
-
-def delete_note(user_id, note_ids):
-    pass
-
-
 if __name__ == '__main__':
     try:
         db.connect()

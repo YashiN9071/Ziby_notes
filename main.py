@@ -1,9 +1,8 @@
 # t.me/ziby_notes_bot
 import logging
-import sqlite3
+from peewee import *
 from telegram.ext import Updater, CommandHandler, ConversationHandler
 from telegram import ReplyKeyboardMarkup
-from ORM import *
 
 # logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.DEBUG)
@@ -43,7 +42,7 @@ def main():
 
 def start(update, context):
     update.message.reply_text(
-        'Давайте начнём!',
+        'Здравствуйте! Я — бот Ziby notes, в котором вы можете создавать заметки, отправлять себе сообщения в будущее',
         reply_markup=main_markup
     )
     user_inf = (
@@ -68,13 +67,12 @@ def notes(update, context):
     update.message.reply_text('''Здесь вы можете посмотреть все ваши существующие заметки, добавить новую или удалить \
 старую заметку.
 
-Для того, чтобы создать заметку воспользуйтесь командой /create_note (ваша заметка).
+Команда /create_note {ваша заметка} — создаёт новую заметку.
 
-Для того, чтобы удалить заметку вам нужно использовать команду /delete_note и указать её \
-порядковый номер. Если хотите удалить несколько, то запишите все цифры через пробел.''')
+Команда /delete_note {цифра/цифры, записанные через пробел} — позволяет удалить заметку/заметки.''')
 
     user_id = update.message.from_user.id
-    user_notes = view_note(user_id)
+    user_notes = view_notes(user_id)
     list_of_notes = []
     if len(user_notes):
         for note_number in range(len(user_notes)):
@@ -90,10 +88,10 @@ def notes(update, context):
 def create_note(update, context):
     new_note = update.message.text[13:]
     user_id = update.message.from_user.id
-    user_notes_len = len(view_note(user_id))
+    user_notes_len = len(view_notes(user_id))
     add_note(user_id, user_notes_len + 1, new_note)
 
-    user_notes = view_note(user_id)
+    user_notes = view_notes(user_id)
     list_of_notes = []
     for note_number in range(len(user_notes)):
         list_of_notes.append(f'{user_notes[note_number][0]}. {user_notes[note_number][1]}')
@@ -103,25 +101,23 @@ def create_note(update, context):
 
 
 def delete_note(update, context):
-    number_of_notes_for_delete = update.message.text[13:]
-    notes_for_delete = [int(x) for x in number_of_notes_for_delete.split()]
-    user_id = update.message.from_user.id
-    conn = sqlite3.connect("ziby_notes_database.db")
-    cur = conn.cursor()
-    user_notes = cur.execute('SELECT note_number_for_user, note FROM notes WHERE user_id = ?', (user_id,)).fetchall()
-    print(user_notes)
-    for note_number in notes_for_delete:
-        cur.execute('DELETE FROM notes WHERE user_id = ? and note_number_for_user = ?', (user_id, note_number))
-    user_notes = cur.execute('SELECT note_number_for_user, note FROM notes WHERE user_id = ?', (user_id,)).fetchall()
-    print(user_notes)
+    try:
+        notes_for_delete_message = update.message.text[13:]
+        notes_for_delete = [int(x) for x in notes_for_delete_message.split()]
+        user_id = update.message.from_user.id
+        remove_note(user_id, notes_for_delete)
 
-    user_notes = cur.execute('SELECT note FROM notes WHERE user_id = ?', (user_id,)).fetchall()
-    list_of_notes = []
-    for note_number in range(len(user_notes)):
-        list_of_notes.append(f'{note_number + 1}. {user_notes[note_number][0]}')
-    list_of_notes = '\n'.join(list_of_notes)
+        user_notes = view_notes(user_id)
+        list_of_notes = []
+        for note_number in range(len(user_notes)):
+            list_of_notes.append(f'{user_notes[note_number][0]}. {user_notes[note_number][1]}')
+        list_of_notes = '\n'.join(list_of_notes)
 
-    update.message.reply_text(f'''Теперь ваши заметки выглядят так:\n{list_of_notes}''')
+        update.message.reply_text(f'''Теперь ваши заметки выглядят так:\n{list_of_notes}''')
+
+    except ValueError:
+        update.message.reply_text('Пожалуйста, отправьте цифру/цифры, записанные через пробел, если хотите \
+удалить сообщение')
 
 
 def reminds(update, context):
@@ -146,6 +142,84 @@ def delete_remind(update, context):
 
 def come_back(update, context):
     update.message.reply_text('Возвращаю', reply_markup=main_markup)
+
+
+# ORM models
+db = SqliteDatabase('ziby_notes_database.db')
+
+
+class BaseModel(Model):
+    class Meta:
+        database = db
+
+
+# tables
+class Users(BaseModel):
+    user_id = IntegerField()
+    first_name = TextField()
+    username = TextField()
+
+    class Meta:
+        db_table = 'users'
+
+
+class Notes(BaseModel):
+    user_id = IntegerField()
+    user_note_id = IntegerField()
+    note = TextField()
+
+    class Meta:
+        db_table = 'notes'
+
+
+class Reminds(BaseModel):
+    user_id = IntegerField()
+    remind = TextField()
+    datetime = DateTimeField()
+
+    class Meta:
+        db_table = 'reminds'
+
+
+# user
+def add_user(user_id, first_name, username):
+    row = Users(user_id=user_id, first_name=first_name, username=username)
+    row.save()
+
+
+# notes
+def add_note(user_id, user_note_id, note):
+    row = Notes(user_id=user_id, user_note_id=user_note_id, note=note)
+    row.save()
+
+
+def view_notes(user_id):
+    user_notes_count = Notes.select(Notes.user_id == user_id).count()
+    all_notes = []
+    for note_number in range(1, user_notes_count + 1):
+        note = Notes.get(Notes.user_id == user_id, Notes.user_note_id == note_number)
+        all_notes.append((note.user_note_id, note.note))
+    return all_notes
+
+
+def remove_note(user_id, *note_ids):
+    ids = sorted(note_ids[0])
+    ids.reverse()
+    user_notes_count = Notes.select(Notes.user_id == user_id).count()
+    if max(ids) <= user_notes_count:
+        all_notes = []
+        for note_number in range(1, user_notes_count + 1):
+            note = Notes.get(Notes.user_id == user_id, Notes.user_note_id == note_number)
+            all_notes.append(note.note)
+        for i in ids:
+            note = Notes.get(Notes.user_id == user_id, Notes.user_note_id == i)
+            note.delete_instance()
+            all_notes.pop(i - 1)
+        user_notes_count = Notes.select(Notes.user_id == user_id).count()
+        for i in range(user_notes_count):
+            note = Notes.get(Notes.user_id == user_id, Notes.note == all_notes[i])
+            note.user_note_id = i + 1
+            note.save()
 
 
 # start program
